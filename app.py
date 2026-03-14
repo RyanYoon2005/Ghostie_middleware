@@ -1,10 +1,12 @@
-import json
+from fastapi import FastAPI
+from mangum import Mangum
 
-def lambda_handler(event, context):
-    return {
-        "statusCode": 200,
-        "headers": {
-            "Content-Type": "application/json"
-        },
-        "body": json.dumps({"message": "Hello from your new Swagger API!"})
-    }
+# root_path tells FastAPI it's hosted at /Prod on AWS
+app = FastAPI(title="Ghostie Middleware", version="1.0.0", root_path="/Prod")
+
+@app.get("/api")
+def my_api():
+    return {"message": "Hello from the new API!"}
+
+# Mangum wraps your FastAPI app so it works perfectly inside AWS Lambda
+handler = Mangum(app)

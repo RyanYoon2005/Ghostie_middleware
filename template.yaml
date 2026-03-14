@@ -2,40 +2,25 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 
 Resources:
-  MySwaggerApi:
-    Type: AWS::Serverless::Api
-    Properties:
-      StageName: Prod
-      DefinitionBody:
-        openapi: "3.0.1"
-        info:
-          title: "ASAP Python API"
-          version: "1.0.0"
-        paths:
-          /api:
-            get:
-              x-amazon-apigateway-integration:
-                httpMethod: "POST"
-                type: "aws_proxy"
-                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyFastApiFunction.Arn}/invocations"
-              responses:
-                "200":
-                  description: "Successful response"
-
   MyFastApiFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: .
-      Handler: app.lambda_handler
+      Handler: app.handler # Points to the Mangum handler we just made
       Runtime: python3.12
       Events:
-        ApiEvent:
+        ApiCatchAll:
           Type: Api
           Properties:
-            RestApiId: !Ref MySwaggerApi
-            Path: /api
-            Method: get
+            Path: /{proxy+}
+            Method: ANY
+        ApiRoot:
+          Type: Api
+          Properties:
+            Path: /
+            Method: ANY
 
 Outputs:
   ApiEndpoint:
-    Value: !Sub "https://${MySwaggerApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/api"
+    Description: "Your Swagger UI Docs Page"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/docs"
