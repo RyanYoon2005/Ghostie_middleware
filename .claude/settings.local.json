@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s https://gv1ivmkf0b.execute-api.ap-southeast-2.amazonaws.com/Prod/health)",
+      "Bash(curl -s -w \"\\\\nHTTP_CODE: %{http_code}\" https://gv1ivmkf0b.execute-api.ap-southeast-2.amazonaws.com/Prod/)"
+    ]
+  }
+}

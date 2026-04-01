@@ -348,74 +348,9 @@ class TestExternalCharlieRedditPosts:
         assert r.status_code == 400
 
 
-# ── Charlie API [EXTERNAL] — Events pipeline ──────────────────────────────
-
-
-class TestExternalCharlieEventsPipeline:
-    """[EXTERNAL API] Charlie API — Events: subscribe, list, detail, posts, snapshots."""
-
-    def _fresh_login(self, client, charlie_api_url):
-        """Re-login to get a fresh JWT (Charlie tokens may be short-lived)."""
-        email = os.environ.get("CHARLIE_API_EMAIL", "")
-        password = os.environ.get("CHARLIE_API_PASSWORD", "")
-        r = client.post(
-            f"{charlie_api_url}/v1/auth/login",
-            json={"email": email, "password": password},
-        )
-        assert r.status_code == 200, f"Re-login failed: {r.text}"
-        return {"Authorization": f"Bearer {r.json()['token']}"}
-
-    def test_full_events_flow(self, client, charlie_api_url, charlie_headers):
-        # Step 1 — subscribe to an event
-        subscribe_resp = client.post(
-            f"{charlie_api_url}/v1/events/subscribe",
-            json={"keyword": "ghostie e2e test", "description": "Automated E2E test event"},
-            headers=charlie_headers,
-        )
-        assert subscribe_resp.status_code == 201
-        sub_body = subscribe_resp.json()
-        assert "eventId" in sub_body
-        assert "buckets" in sub_body
-        event_id = sub_body["eventId"]
-
-        # Re-login for a fresh token before the read operations
-        headers = self._fresh_login(client, charlie_api_url)
-
-        # Step 2 — list all events (should include ours)
-        events_resp = client.get(
-            f"{charlie_api_url}/v1/events",
-            headers=headers,
-        )
-        assert events_resp.status_code == 200
-        event_ids = [e["id"] for e in events_resp.json()["events"]]
-        assert event_id in event_ids
-
-        # Step 3 — get event by ID
-        detail_resp = client.get(
-            f"{charlie_api_url}/v1/events/{event_id}",
-            headers=headers,
-        )
-        assert detail_resp.status_code == 200
-        detail = detail_resp.json()
-        assert detail["event"]["id"] == event_id
-        assert "buckets" in detail
-        assert "snapshots" in detail
-
-        # Step 4 — get posts for event
-        posts_resp = client.get(
-            f"{charlie_api_url}/v1/events/{event_id}/posts",
-            headers=headers,
-        )
-        assert posts_resp.status_code == 200
-        assert "posts" in posts_resp.json()
-
-        # Step 5 — get snapshots for event
-        snapshots_resp = client.get(
-            f"{charlie_api_url}/v1/events/{event_id}/snapshots",
-            headers=headers,
-        )
-        assert snapshots_resp.status_code == 200
-        assert "snapshots" in snapshots_resp.json()
+# NOTE: Charlie API internal routes (/v1/events/*) are NOT tested here.
+# They require elevated permissions beyond standard signup/login auth.
+# See: "Internal Routes (Email z5479862@ad.unsw.edu.au to access)"
 
 
 # ── Endpoint coverage gate ─────────────────────────────────────────────────

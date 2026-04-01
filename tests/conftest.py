@@ -59,17 +59,13 @@ REQUIRED_ENDPOINTS = {
     ("GET", "/sentiment"),
     ("GET", "/leaderboard"),
     ("GET", "/history"),
-    # Charlie API (external group)
+    # Charlie API (external group — public routes only)
+    # Internal routes (/v1/events/*) excluded: require elevated permissions
     ("POST", "/v1/auth/signup"),
     ("POST", "/v1/auth/login"),
     ("GET", "/v1/auth/me"),
     ("GET", "/v1/post/search"),
     ("GET", "/v1/post/comments"),
-    ("GET", "/v1/events"),
-    ("GET", "/v1/events/{eventId}"),
-    ("GET", "/v1/events/{eventId}/posts"),
-    ("GET", "/v1/events/{eventId}/snapshots"),
-    ("POST", "/v1/events/subscribe"),
 }
 
 
