@@ -25,3 +25,74 @@ jobs:
       - run: sam build
 
       - run: sam deploy --stack-name Ghostie-middleware --resolve-s3 --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset
+
+  e2e-tests:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-2
+
+      - name: Install test dependencies
+        run: pip install -r requirements-test.txt
+
+      - name: Resolve API URLs from CloudFormation
+        run: |
+          get_api_url() {
+            API_ID=$(aws cloudformation describe-stack-resources \
+              --stack-name "$1" \
+              --query "StackResources[?ResourceType=='AWS::ApiGateway::RestApi'].PhysicalResourceId | [0]" \
+              --output text 2>/dev/null)
+            if [ -n "$API_ID" ] && [ "$API_ID" != "None" ]; then
+              echo "https://${API_ID}.execute-api.ap-southeast-2.amazonaws.com/Prod"
+            fi
+          }
+          echo "MIDDLEWARE_URL=$(get_api_url Ghostie-middleware)" >> $GITHUB_ENV
+          echo "DATA_COLLECTION_URL=$(get_api_url Ghostie-data-collection)" >> $GITHUB_ENV
+          echo "DATA_RETRIEVAL_URL=$(get_api_url Ghostie-data-retrieval)" >> $GITHUB_ENV
+          echo "ANALYTICAL_MODEL_URL=$(get_api_url Ghostie-analytical-model)" >> $GITHUB_ENV
+
+      - name: Run E2E tests
+        env:
+          CHARLIE_API_URL: ${{ secrets.CHARLIE_API_URL }}
+          CHARLIE_API_EMAIL: ${{ secrets.CHARLIE_API_EMAIL }}
+          CHARLIE_API_PASSWORD: ${{ secrets.CHARLIE_API_PASSWORD }}
+          CHARLIE_API_USERNAME: ${{ secrets.CHARLIE_API_USERNAME }}
+        run: python -m pytest tests/ -v
+
+      - name: Install Playwright and Chromium
+        if: always()
+        run: |
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Convert test report to PDF
+        if: always()
+        run: |
+          python -c "
+          from playwright.sync_api import sync_playwright
+          import os
+          with sync_playwright() as p:
+              browser = p.chromium.launch()
+              page = browser.new_page()
+              page.goto('file://' + os.path.abspath('tests/e2e-report.html'))
+              page.wait_for_load_state('networkidle')
+              page.pdf(path='tests/e2e-report.pdf', format='A4', print_background=True)
+              browser.close()
+          "
+
+      - name: Upload E2E test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-report
+          path: tests/e2e-report.pdf
