@@ -114,6 +114,12 @@ def get_tracker() -> EndpointTracker:
     return _tracker
 
 
+@pytest.fixture(scope="session")
+def endpoint_tracker():
+    """Expose the endpoint tracker to tests."""
+    return _tracker
+
+
 # ── HTTP client with tracking ──────────────────────────────────────────────
 
 

@@ -17,7 +17,6 @@ import os
 
 import pytest
 
-from conftest import get_tracker
 
 
 # ── Health checks ──────────────────────────────────────────────────────────
@@ -414,9 +413,8 @@ class TestEndpointCoverage:
     ensuring every route is exercised at least once.
     """
 
-    def test_all_endpoints_were_called(self):
-        tracker = get_tracker()
-        missing = tracker.uncovered()
+    def test_all_endpoints_were_called(self, endpoint_tracker):
+        missing = endpoint_tracker.uncovered()
         if missing:
             report = "\n".join(f"  - {ep}" for ep in missing)
             pytest.fail(
