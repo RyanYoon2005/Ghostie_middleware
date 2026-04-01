@@ -244,7 +244,16 @@ def charlie_auth_token(charlie_auth):
     return charlie_auth["token"]
 
 
-@pytest.fixture(scope="session")
-def charlie_headers(charlie_auth_token):
-    """Authorization headers for Charlie API requests."""
-    return {"Authorization": f"Bearer {charlie_auth_token}"}
+@pytest.fixture()
+def charlie_headers(client, charlie_api_url):
+    """Fresh login before each test — Charlie tokens may be short-lived."""
+    email = os.environ.get("CHARLIE_API_EMAIL", "")
+    password = os.environ.get("CHARLIE_API_PASSWORD", "")
+    if not email or not password:
+        pytest.skip("CHARLIE_API_EMAIL / CHARLIE_API_PASSWORD not set")
+    r = client.post(
+        f"{charlie_api_url}/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert r.status_code == 200, f"Charlie login failed: {r.text}"
+    return {"Authorization": f"Bearer {r.json()['token']}"}
