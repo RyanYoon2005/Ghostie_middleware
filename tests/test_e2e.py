@@ -304,8 +304,9 @@ class TestExternalCharlieRedditPosts:
         )
         assert r.status_code == 200
         body = r.json()
-        assert "events" in body
-        assert isinstance(body["events"], list)
+        assert "data" in body
+        assert "events" in body["data"]
+        assert isinstance(body["data"]["events"], list)
 
     def test_search_posts_requires_auth(self, client, charlie_api_url):
         r = client.get(
@@ -322,7 +323,7 @@ class TestExternalCharlieRedditPosts:
             headers=charlie_headers,
         )
         assert search_resp.status_code == 200
-        events = search_resp.json().get("events", [])
+        events = search_resp.json().get("data", {}).get("events", [])
 
         if not events:
             pytest.skip("No posts returned — cannot test comments")
@@ -336,7 +337,8 @@ class TestExternalCharlieRedditPosts:
         )
         assert r.status_code == 200
         body = r.json()
-        assert "events" in body
+        assert "data" in body
+        assert "events" in body["data"]
 
     def test_comments_missing_link_id_returns_400(self, client, charlie_api_url, charlie_headers):
         r = client.get(
@@ -352,6 +354,17 @@ class TestExternalCharlieRedditPosts:
 class TestExternalCharlieEventsPipeline:
     """[EXTERNAL API] Charlie API — Events: subscribe, list, detail, posts, snapshots."""
 
+    def _fresh_login(self, client, charlie_api_url):
+        """Re-login to get a fresh JWT (Charlie tokens may be short-lived)."""
+        email = os.environ.get("CHARLIE_API_EMAIL", "")
+        password = os.environ.get("CHARLIE_API_PASSWORD", "")
+        r = client.post(
+            f"{charlie_api_url}/v1/auth/login",
+            json={"email": email, "password": password},
+        )
+        assert r.status_code == 200, f"Re-login failed: {r.text}"
+        return {"Authorization": f"Bearer {r.json()['token']}"}
+
     def test_full_events_flow(self, client, charlie_api_url, charlie_headers):
         # Step 1 — subscribe to an event
         subscribe_resp = client.post(
@@ -365,10 +378,13 @@ class TestExternalCharlieEventsPipeline:
         assert "buckets" in sub_body
         event_id = sub_body["eventId"]
 
+        # Re-login for a fresh token before the read operations
+        headers = self._fresh_login(client, charlie_api_url)
+
         # Step 2 — list all events (should include ours)
         events_resp = client.get(
             f"{charlie_api_url}/v1/events",
-            headers=charlie_headers,
+            headers=headers,
         )
         assert events_resp.status_code == 200
         event_ids = [e["id"] for e in events_resp.json()["events"]]
@@ -377,7 +393,7 @@ class TestExternalCharlieEventsPipeline:
         # Step 3 — get event by ID
         detail_resp = client.get(
             f"{charlie_api_url}/v1/events/{event_id}",
-            headers=charlie_headers,
+            headers=headers,
         )
         assert detail_resp.status_code == 200
         detail = detail_resp.json()
@@ -388,7 +404,7 @@ class TestExternalCharlieEventsPipeline:
         # Step 4 — get posts for event
         posts_resp = client.get(
             f"{charlie_api_url}/v1/events/{event_id}/posts",
-            headers=charlie_headers,
+            headers=headers,
         )
         assert posts_resp.status_code == 200
         assert "posts" in posts_resp.json()
@@ -396,7 +412,7 @@ class TestExternalCharlieEventsPipeline:
         # Step 5 — get snapshots for event
         snapshots_resp = client.get(
             f"{charlie_api_url}/v1/events/{event_id}/snapshots",
-            headers=charlie_headers,
+            headers=headers,
         )
         assert snapshots_resp.status_code == 200
         assert "snapshots" in snapshots_resp.json()
