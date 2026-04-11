@@ -1,6 +1,28 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 
+Parameters:
+  CharlieApiUrl:
+    Type: String
+    Description: Base URL for the Charlie authentication API
+  DataCollectionUrl:
+    Type: String
+    Description: Base URL for the Ghostie Data Collection service
+  DataRetrievalUrl:
+    Type: String
+    Description: Base URL for the Ghostie Data Retrieval service
+  AnalyticalModelUrl:
+    Type: String
+    Description: Base URL for the Ghostie Analytical Model service
+  UsersTable:
+    Type: String
+    Default: users
+    Description: DynamoDB table name for user accounts
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    Description: Secret key for signing JWTs
+
 Resources:
   MyFastApiFunction:
     Type: AWS::Serverless::Function
@@ -8,6 +30,14 @@ Resources:
       CodeUri: .
       Handler: app.handler # Points to the Mangum handler we just made
       Runtime: python3.12
+      Environment:
+        Variables:
+          CHARLIE_API_URL: !Ref CharlieApiUrl
+          DATA_COLLECTION_URL: !Ref DataCollectionUrl
+          DATA_RETRIEVAL_URL: !Ref DataRetrievalUrl
+          ANALYTICAL_MODEL_URL: !Ref AnalyticalModelUrl
+          USERS_TABLE: !Ref UsersTable
+          JWT_SECRET: !Ref JwtSecret
       Events:
         ApiCatchAll:
           Type: Api

@@ -1,2 +1,6 @@
 fastapi
 mangum
+httpx
+boto3
+PyJWT
+bcrypt
