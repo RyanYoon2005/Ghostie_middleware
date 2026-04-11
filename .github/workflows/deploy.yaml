@@ -24,7 +24,18 @@ jobs:
 
       - run: sam build
 
-      - run: sam deploy --stack-name Ghostie-middleware --resolve-s3 --capabilities CAPABILITY_IAM --no-fail-on-empty-changeset
+      - run: |
+          sam deploy \
+            --stack-name Ghostie-middleware \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              CharlieApiUrl=${{ secrets.CHARLIE_API_URL }} \
+              JwtSecret=${{ secrets.JWT_SECRET }} \
+              DataCollectionUrl=${{ secrets.DATA_COLLECTION_URL }} \
+              DataRetrievalUrl=${{ secrets.DATA_RETRIEVAL_URL }} \
+              AnalyticalModelUrl=${{ secrets.ANALYTICAL_MODEL_URL }}
 
   e2e-tests:
     needs: deploy
