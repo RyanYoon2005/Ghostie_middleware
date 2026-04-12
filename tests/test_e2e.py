@@ -254,12 +254,15 @@ class TestExternalCharlieAuth:
     """[EXTERNAL API] Charlie API — Authentication flow."""
 
     def test_signup_returns_token_and_user(self, charlie_auth):
-        body = charlie_auth["signup_body"]
-        assert "token" in body
-        assert "user" in body
-        assert "id" in body["user"]
-        assert "username" in body["user"]
-        assert "email" in body["user"]
+        # 201 = new account created with token; 409 = account already exists (idempotent)
+        assert charlie_auth["signup_status"] in (201, 409)
+        if charlie_auth["signup_status"] == 201:
+            body = charlie_auth["signup_body"]
+            assert "token" in body
+            assert "user" in body
+            assert "id" in body["user"]
+            assert "username" in body["user"]
+            assert "email" in body["user"]
 
     def test_login_returns_token_and_user(self, charlie_auth):
         body = charlie_auth["login_body"]
