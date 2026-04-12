@@ -305,6 +305,8 @@ class TestExternalCharlieRedditPosts:
             params={"query": "wuhan", "subreddit": "worldnews", "limit": 2},
             headers=charlie_headers,
         )
+        if r.status_code >= 500:
+            pytest.skip(f"Charlie API /v1/post/search returned {r.status_code} — external service issue")
         assert r.status_code == 200
         body = r.json()
         assert "data" in body
@@ -325,6 +327,8 @@ class TestExternalCharlieRedditPosts:
             params={"query": "wuhan", "subreddit": "worldnews", "limit": 1},
             headers=charlie_headers,
         )
+        if search_resp.status_code >= 500:
+            pytest.skip(f"Charlie API /v1/post/search returned {search_resp.status_code} — external service issue")
         assert search_resp.status_code == 200
         events = search_resp.json().get("data", {}).get("events", [])
 
@@ -338,6 +342,8 @@ class TestExternalCharlieRedditPosts:
             params={"link_id": post_id, "limit": 2},
             headers=charlie_headers,
         )
+        if r.status_code >= 500:
+            pytest.skip(f"Charlie API /v1/post/comments returned {r.status_code} — external service issue")
         assert r.status_code == 200
         body = r.json()
         assert "data" in body
