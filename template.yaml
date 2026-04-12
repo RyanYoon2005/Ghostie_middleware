@@ -30,6 +30,8 @@ Resources:
       CodeUri: .
       Handler: app.handler # Points to the Mangum handler we just made
       Runtime: python3.12
+      Timeout: 30
+      MemorySize: 256
       Environment:
         Variables:
           CHARLIE_API_URL: !Ref CharlieApiUrl
