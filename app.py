@@ -8,6 +8,7 @@ import boto3
 import jwt
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from mangum import Mangum
@@ -16,6 +17,13 @@ from pydantic import BaseModel
 # ── App setup ──────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Ghostie Middleware", version="1.0.0", root_path="/Prod")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── Config from environment ────────────────────────────────────────────────
 
