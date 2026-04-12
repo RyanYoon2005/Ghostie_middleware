@@ -38,6 +38,9 @@ Resources:
           ANALYTICAL_MODEL_URL: !Ref AnalyticalModelUrl
           USERS_TABLE: !Ref UsersTable
           JWT_SECRET: !Ref JwtSecret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
       Events:
         ApiCatchAll:
           Type: Api
