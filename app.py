@@ -121,8 +121,6 @@ def signup(body: SignupRequest):
         "email": body.email,
         "username": body.username,
         "password": hashed,
-        "favourited": [],
-        "past": [],
     })
 
     token = _create_token(body.email, body.username)
