@@ -171,18 +171,20 @@ def get_favourites(user: Annotated[dict, Depends(get_current_user)]):
 def add_favourite(business_key: str, user: Annotated[dict, Depends(get_current_user)]):
     _users.update_item(
         Key={"email": user["sub"]},
-        UpdateExpression="ADD favourited :key",
-        ExpressionAttributeValues={":key": {business_key}},
+        UpdateExpression="SET favourited = list_append(if_not_exists(favourited, :empty), :key)",
+        ExpressionAttributeValues={":key": [business_key], ":empty": []},
     )
     return {"message": "Added to favourites", "business_key": business_key}
 
 
 @app.delete("/users/me/favourites/{business_key}", status_code=200)
 def remove_favourite(business_key: str, user: Annotated[dict, Depends(get_current_user)]):
+    item = _users.get_item(Key={"email": user["sub"]}).get("Item", {})
+    favourited = [k for k in item.get("favourited", []) if k != business_key]
     _users.update_item(
         Key={"email": user["sub"]},
-        UpdateExpression="DELETE favourited :key",
-        ExpressionAttributeValues={":key": {business_key}},
+        UpdateExpression="SET favourited = :val",
+        ExpressionAttributeValues={":val": favourited},
     )
     return {"message": "Removed from favourites", "business_key": business_key}
 
@@ -209,8 +211,8 @@ def _record_past(email: str, business_key: str):
     try:
         _users.update_item(
             Key={"email": email},
-            UpdateExpression="ADD past :key",
-            ExpressionAttributeValues={":key": {business_key}},
+            UpdateExpression="SET past = list_append(if_not_exists(past, :empty), :key)",
+            ExpressionAttributeValues={":key": [business_key], ":empty": []},
         )
     except Exception:
         pass  # Never fail the main request over a history write
