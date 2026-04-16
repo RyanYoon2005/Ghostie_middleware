@@ -127,6 +127,12 @@ def signup(body: SignupRequest):
     return {"token": token, "user": {"email": body.email, "username": body.username}}
 
 
+@app.post("/auth/refresh")
+def refresh(user: Annotated[dict, Depends(get_current_user)]):
+    token = _create_token(user["sub"], user["username"])
+    return {"token": token}
+
+
 @app.post("/auth/login")
 def login(body: LoginRequest):
     item = _users.get_item(Key={"email": body.email}).get("Item")
