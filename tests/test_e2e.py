@@ -489,6 +489,65 @@ class TestComparisons:
         assert r.status_code == 404
 
 
+# ── ASX announcements endpoint ────────────────────────────────────────────
+
+
+class TestASXAnnouncements:
+    """Verify the ASX announcements endpoint returns correct structure."""
+
+    def test_asx_returns_expected_shape_for_uncollected_business(self, client, middleware_url):
+        # A business that has never been collected returns a graceful empty response
+        r = client.get(
+            f"{middleware_url}/asx/announcements",
+            params={
+                "business_name": "NonexistentBusiness99999",
+                "location": "Nowhere",
+                "category": "none",
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert "announcements" in body
+        assert isinstance(body["announcements"], list)
+
+    def test_asx_missing_params_returns_422(self, client, middleware_url):
+        r = client.get(f"{middleware_url}/asx/announcements")
+        assert r.status_code == 422
+
+    def test_asx_returns_correct_fields_when_announcements_present(self, client, middleware_url, data_retrieval_url):
+        # Only run if there are companies with ASX data in the retrieval service
+        companies_resp = client.get(f"{data_retrieval_url}/companies")
+        assert companies_resp.status_code == 200
+        companies = companies_resp.json().get("companies", [])
+        if not companies:
+            pytest.skip("No companies in retrieval DB")
+
+        company = companies[0]
+        r = client.get(
+            f"{middleware_url}/asx/announcements",
+            params={
+                "business_name": company["business_name"],
+                "location": company["location"],
+                "category": company["category"],
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert "ticker" in body
+        assert "announcements" in body
+        assert "total" in body
+        assert "market_sensitive_count" in body
+        assert isinstance(body["announcements"], list)
+        assert isinstance(body["total"], int)
+        assert isinstance(body["market_sensitive_count"], int)
+        # If announcements are present, each must have the required fields
+        for ann in body["announcements"]:
+            assert "title" in ann
+            assert "date" in ann
+            assert "market_sensitive" in ann
+            assert isinstance(ann["market_sensitive"], bool)
+
+
 # ── Trending endpoint ─────────────────────────────────────────────────────
 
 

@@ -46,6 +46,7 @@ REQUIRED_ENDPOINTS = {
     ("GET", "/users/me/comparisons"),
     ("GET", "/users/me/comparisons/{comparison_id}"),
     ("DELETE", "/users/me/comparisons/{comparison_id}"),
+    ("GET", "/asx/announcements"),
     # Data Collection
     ("GET", "/health", "collection"),
     ("GET", "/", "collection"),

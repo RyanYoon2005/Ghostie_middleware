@@ -304,6 +304,131 @@ def my_api():
     return {"message": "Hello from Ghostie Middleware!"}
 
 
+# ── ASX announcements endpoint ────────────────────────────────────────────
+
+
+@app.get("/asx/announcements")
+async def get_asx_announcements(
+    business_name: str,
+    location: str,
+    category: str,
+):
+    """
+    Return ASX announcements for a business, extracted from stored collected data.
+
+    Filters items where source == 'asx_announcements' from the latest data snapshot
+    in the retrieval service. Returns [] for companies that are not ASX-listed.
+    No auth required — ASX data is public.
+    """
+    if not DATA_RETRIEVAL_URL:
+        raise HTTPException(status_code=503, detail="Data retrieval service not configured")
+
+    # Step 1: Fetch the latest stored data for this business
+    try:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            retrieve_resp = await client.get(
+                f"{DATA_RETRIEVAL_URL.rstrip('/')}/retrieve",
+                params={
+                    "business_name": business_name,
+                    "location": location,
+                    "category": category,
+                },
+            )
+    except Exception:
+        raise HTTPException(status_code=503, detail="Could not reach data retrieval service")
+
+    if retrieve_resp.status_code == 404:
+        return {
+            "ticker": None,
+            "business_name": business_name,
+            "announcements": [],
+            "message": "No data collected for this business yet. Run /collect first.",
+        }
+
+    if retrieve_resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Data retrieval service error")
+
+    body = retrieve_resp.json()
+
+    # Step 2: If NO NEW DATA, the full data array is not returned — fetch by hash_key
+    if body.get("status") == "NO NEW DATA":
+        hash_key = body.get("hash_key")
+        if not hash_key:
+            return {
+                "ticker": None,
+                "business_name": business_name,
+                "announcements": [],
+                "message": "No stored data available",
+            }
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                hash_resp = await client.get(
+                    f"{DATA_RETRIEVAL_URL.rstrip('/')}/retrieve/{hash_key}",
+                )
+            if hash_resp.status_code != 200:
+                return {
+                    "ticker": None,
+                    "business_name": business_name,
+                    "announcements": [],
+                    "message": "Could not retrieve stored data",
+                }
+            body = hash_resp.json()
+        except Exception:
+            return {
+                "ticker": None,
+                "business_name": business_name,
+                "announcements": [],
+                "message": "Could not retrieve stored data",
+            }
+
+    # Step 3: Filter for ASX announcement items only
+    data = body.get("data", [])
+    asx_items = [item for item in data if item.get("source") == "asx_announcements"]
+
+    if not asx_items:
+        return {
+            "ticker": None,
+            "business_name": business_name,
+            "location": location,
+            "category": category,
+            "total": 0,
+            "market_sensitive_count": 0,
+            "announcements": [],
+            "message": "No ASX announcements found — this business may not be ASX-listed",
+        }
+
+    # Step 4: Extract ticker and format announcements
+    ticker = asx_items[0].get("metadata", {}).get("ticker")
+
+    announcements = []
+    for item in asx_items:
+        meta = item.get("metadata", {})
+        announcements.append({
+            "title": item.get("title", ""),
+            "date": meta.get("document_date", ""),
+            "released_at": item.get("timestamp", ""),
+            "market_sensitive": meta.get("market_sensitive", False),
+            "url": item.get("url", ""),
+            "pages": meta.get("number_of_pages"),
+            "size": meta.get("size", ""),
+        })
+
+    # Sort most recent first
+    announcements.sort(key=lambda x: x.get("released_at", ""), reverse=True)
+
+    market_sensitive_count = sum(1 for a in announcements if a.get("market_sensitive"))
+
+    return {
+        "ticker": ticker,
+        "business_name": business_name,
+        "location": location,
+        "category": category,
+        "total": len(announcements),
+        "market_sensitive_count": market_sensitive_count,
+        "announcements": announcements,
+    }
+
+
 # ── Trending endpoint ──────────────────────────────────────────────────────
 
 
