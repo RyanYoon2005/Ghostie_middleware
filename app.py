@@ -1,6 +1,9 @@
+import asyncio
 import hashlib
 import os
 import time
+import uuid
+from datetime import datetime, timezone
 from typing import Annotated
 
 import bcrypt
@@ -71,6 +74,17 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class ComparisonBusiness(BaseModel):
+    business_name: str
+    location: str
+    category: str
+
+
+class SaveComparisonRequest(BaseModel):
+    name: str
+    businesses: list[ComparisonBusiness]
 
 
 # ── JWT helpers ────────────────────────────────────────────────────────────
@@ -195,6 +209,93 @@ def remove_favourite(business_key: str, user: Annotated[dict, Depends(get_curren
     return {"message": "Removed from favourites", "business_key": business_key}
 
 
+# ── Comparisons endpoints ─────────────────────────────────────────────────
+
+
+@app.post("/users/me/comparisons", status_code=201)
+def save_comparison(
+    body: SaveComparisonRequest,
+    user: Annotated[dict, Depends(get_current_user)],
+):
+    if not body.name.strip():
+        raise HTTPException(status_code=422, detail="Comparison name must not be empty")
+    if len(body.businesses) < 2:
+        raise HTTPException(status_code=422, detail="A comparison needs at least 2 businesses")
+    if len(body.businesses) > 5:
+        raise HTTPException(status_code=422, detail="A comparison supports at most 5 businesses")
+
+    comparison = {
+        "comparison_id": uuid.uuid4().hex,
+        "name": body.name.strip(),
+        "businesses": [b.model_dump() for b in body.businesses],
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+    _users.update_item(
+        Key={"email": user["sub"]},
+        UpdateExpression="SET comparisons = list_append(if_not_exists(comparisons, :empty), :item)",
+        ExpressionAttributeValues={":item": [comparison], ":empty": []},
+    )
+    return comparison
+
+
+@app.get("/users/me/comparisons")
+def list_comparisons(user: Annotated[dict, Depends(get_current_user)]):
+    item = _users.get_item(Key={"email": user["sub"]}).get("Item")
+    if not item:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"comparisons": list(item.get("comparisons", []))}
+
+
+@app.get("/users/me/comparisons/{comparison_id}")
+async def get_comparison(
+    comparison_id: str,
+    user: Annotated[dict, Depends(get_current_user)],
+):
+    item = _users.get_item(Key={"email": user["sub"]}).get("Item")
+    if not item:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    comparison = next(
+        (c for c in item.get("comparisons", []) if c["comparison_id"] == comparison_id),
+        None,
+    )
+    if not comparison:
+        raise HTTPException(status_code=404, detail="Comparison not found")
+
+    # Fire sentiment analysis for all businesses concurrently and record each in past
+    results = await asyncio.gather(
+        *[_fetch_sentiment_for_business(b, user) for b in comparison["businesses"]]
+    )
+
+    return {
+        "comparison_id": comparison["comparison_id"],
+        "name": comparison["name"],
+        "created_at": comparison["created_at"],
+        "results": list(results),
+    }
+
+
+@app.delete("/users/me/comparisons/{comparison_id}", status_code=200)
+def delete_comparison(
+    comparison_id: str,
+    user: Annotated[dict, Depends(get_current_user)],
+):
+    item = _users.get_item(Key={"email": user["sub"]}).get("Item", {})
+    existing = item.get("comparisons", [])
+    updated = [c for c in existing if c["comparison_id"] != comparison_id]
+
+    if len(updated) == len(existing):
+        raise HTTPException(status_code=404, detail="Comparison not found")
+
+    _users.update_item(
+        Key={"email": user["sub"]},
+        UpdateExpression="SET comparisons = :val",
+        ExpressionAttributeValues={":val": updated},
+    )
+    return {"message": "Comparison deleted", "comparison_id": comparison_id}
+
+
 # ── Public health endpoint ─────────────────────────────────────────────────
 
 
@@ -287,6 +388,42 @@ def _record_past(email: str, business_key: str):
         )
     except Exception:
         pass  # Never fail the main request over a history write
+
+
+async def _fetch_sentiment_for_business(business: dict, user: dict) -> dict:
+    """Call the analytical model for one business and return merged result.
+
+    Always returns a dict that includes the original business fields so the
+    caller can identify which business failed if the upstream is unavailable.
+    """
+    if not ANALYTICAL_MODEL_URL:
+        return {**business, "error": "Analytical model not configured"}
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get(
+                f"{ANALYTICAL_MODEL_URL.rstrip('/')}/sentiment",
+                params={
+                    "business_name": business["business_name"],
+                    "location": business["location"],
+                    "category": business["category"],
+                },
+                headers={
+                    "X-User-Email": user["sub"],
+                    "X-User-Username": user["username"],
+                },
+            )
+        if resp.status_code == 200:
+            # Record in past list (same funnel as the proxy route)
+            business_key = _compute_business_key(
+                business["business_name"],
+                business["location"],
+                business["category"],
+            )
+            _record_past(user["sub"], business_key)
+            return {**business, **resp.json()}
+        return {**business, "error": f"Upstream returned {resp.status_code}"}
+    except Exception:
+        return {**business, "error": "Failed to reach analytical model"}
 
 
 async def _proxy(base_url: str, path: str, request: Request, user: dict) -> Response:

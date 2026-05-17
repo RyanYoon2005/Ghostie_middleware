@@ -42,6 +42,10 @@ REQUIRED_ENDPOINTS = {
     # Middleware
     ("GET", "/api"),
     ("GET", "/trending"),
+    ("POST", "/users/me/comparisons"),
+    ("GET", "/users/me/comparisons"),
+    ("GET", "/users/me/comparisons/{comparison_id}"),
+    ("DELETE", "/users/me/comparisons/{comparison_id}"),
     # Data Collection
     ("GET", "/health", "collection"),
     ("GET", "/", "collection"),
@@ -199,6 +203,41 @@ def charlie_api_url():
     if not url:
         pytest.skip("CHARLIE_API_URL not set")
     return url.rstrip("/")
+
+
+@pytest.fixture(scope="session")
+def middleware_auth(client, middleware_url):
+    """Sign up (idempotent) then login to the Ghostie middleware.
+
+    Returns dict with token, email, and username.
+    """
+    email = "e2e_test@ghostie.test"
+    password = "TestPassword123!"
+    username = "e2e_test_user"
+
+    # Sign up — safe to call every run, 409 if account already exists
+    client.post(
+        f"{middleware_url}/auth/signup",
+        json={"email": email, "username": username, "password": password},
+    )
+
+    login_resp = client.post(
+        f"{middleware_url}/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert login_resp.status_code == 200, f"Middleware login failed: {login_resp.text}"
+
+    return {
+        "token": login_resp.json()["token"],
+        "email": email,
+        "username": username,
+    }
+
+
+@pytest.fixture()
+def middleware_headers(middleware_auth):
+    """Auth headers for the Ghostie middleware."""
+    return {"Authorization": f"Bearer {middleware_auth['token']}"}
 
 
 @pytest.fixture(scope="session")

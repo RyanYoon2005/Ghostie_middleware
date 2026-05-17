@@ -362,6 +362,133 @@ class TestExternalCharlieRedditPosts:
 # See: "Internal Routes (Email z5479862@ad.unsw.edu.au to access)"
 
 
+# ── Comparisons endpoints ─────────────────────────────────────────────────
+
+
+class TestComparisons:
+    """Verify saved comparisons CRUD and live sentiment fetch work correctly."""
+
+    BUSINESS_A = {"business_name": "Apple", "location": "Cupertino", "category": "technology"}
+    BUSINESS_B = {"business_name": "Nvidia", "location": "Santa Clara", "category": "technology"}
+
+    def test_list_comparisons_returns_list(self, client, middleware_url, middleware_headers):
+        r = client.get(f"{middleware_url}/users/me/comparisons", headers=middleware_headers)
+        assert r.status_code == 200
+        body = r.json()
+        assert "comparisons" in body
+        assert isinstance(body["comparisons"], list)
+
+    def test_save_comparison(self, client, middleware_url, middleware_headers):
+        r = client.post(
+            f"{middleware_url}/users/me/comparisons",
+            json={"name": "Apple vs Nvidia", "businesses": [self.BUSINESS_A, self.BUSINESS_B]},
+            headers=middleware_headers,
+        )
+        assert r.status_code == 201
+        body = r.json()
+        assert body["name"] == "Apple vs Nvidia"
+        assert "comparison_id" in body
+        assert len(body["comparison_id"]) == 32
+        assert "created_at" in body
+        assert len(body["businesses"]) == 2
+
+    def test_save_comparison_appears_in_list(self, client, middleware_url, middleware_headers):
+        save_resp = client.post(
+            f"{middleware_url}/users/me/comparisons",
+            json={"name": "List Test", "businesses": [self.BUSINESS_A, self.BUSINESS_B]},
+            headers=middleware_headers,
+        )
+        assert save_resp.status_code == 201
+        comparison_id = save_resp.json()["comparison_id"]
+
+        list_resp = client.get(f"{middleware_url}/users/me/comparisons", headers=middleware_headers)
+        assert list_resp.status_code == 200
+        ids = [c["comparison_id"] for c in list_resp.json()["comparisons"]]
+        assert comparison_id in ids
+
+    def test_save_comparison_rejects_single_business(self, client, middleware_url, middleware_headers):
+        r = client.post(
+            f"{middleware_url}/users/me/comparisons",
+            json={"name": "Solo", "businesses": [self.BUSINESS_A]},
+            headers=middleware_headers,
+        )
+        assert r.status_code == 422
+
+    def test_save_comparison_rejects_too_many_businesses(self, client, middleware_url, middleware_headers):
+        r = client.post(
+            f"{middleware_url}/users/me/comparisons",
+            json={"name": "Too many", "businesses": [self.BUSINESS_A] * 6},
+            headers=middleware_headers,
+        )
+        assert r.status_code == 422
+
+    def test_save_comparison_rejects_empty_name(self, client, middleware_url, middleware_headers):
+        r = client.post(
+            f"{middleware_url}/users/me/comparisons",
+            json={"name": "   ", "businesses": [self.BUSINESS_A, self.BUSINESS_B]},
+            headers=middleware_headers,
+        )
+        assert r.status_code == 422
+
+    def test_get_comparison_not_found(self, client, middleware_url, middleware_headers):
+        r = client.get(
+            f"{middleware_url}/users/me/comparisons/{'0' * 32}",
+            headers=middleware_headers,
+        )
+        assert r.status_code == 404
+
+    def test_get_comparison_returns_results(self, client, middleware_url, middleware_headers):
+        save_resp = client.post(
+            f"{middleware_url}/users/me/comparisons",
+            json={"name": "Live Fetch Test", "businesses": [self.BUSINESS_A, self.BUSINESS_B]},
+            headers=middleware_headers,
+        )
+        assert save_resp.status_code == 201
+        comparison_id = save_resp.json()["comparison_id"]
+
+        get_resp = client.get(
+            f"{middleware_url}/users/me/comparisons/{comparison_id}",
+            headers=middleware_headers,
+        )
+        assert get_resp.status_code == 200
+        body = get_resp.json()
+        assert body["comparison_id"] == comparison_id
+        assert body["name"] == "Live Fetch Test"
+        assert "results" in body
+        assert len(body["results"]) == 2
+        for result in body["results"]:
+            assert "business_name" in result
+
+    def test_delete_comparison(self, client, middleware_url, middleware_headers):
+        save_resp = client.post(
+            f"{middleware_url}/users/me/comparisons",
+            json={"name": "To Delete", "businesses": [self.BUSINESS_A, self.BUSINESS_B]},
+            headers=middleware_headers,
+        )
+        assert save_resp.status_code == 201
+        comparison_id = save_resp.json()["comparison_id"]
+
+        del_resp = client.delete(
+            f"{middleware_url}/users/me/comparisons/{comparison_id}",
+            headers=middleware_headers,
+        )
+        assert del_resp.status_code == 200
+        assert del_resp.json()["comparison_id"] == comparison_id
+
+        get_resp = client.get(
+            f"{middleware_url}/users/me/comparisons/{comparison_id}",
+            headers=middleware_headers,
+        )
+        assert get_resp.status_code == 404
+
+    def test_delete_nonexistent_comparison_returns_404(self, client, middleware_url, middleware_headers):
+        r = client.delete(
+            f"{middleware_url}/users/me/comparisons/{'0' * 32}",
+            headers=middleware_headers,
+        )
+        assert r.status_code == 404
+
+
 # ── Trending endpoint ─────────────────────────────────────────────────────
 
 
