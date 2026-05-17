@@ -403,12 +403,22 @@ async def get_asx_announcements(
     announcements = []
     for item in asx_items:
         meta = item.get("metadata", {})
+        item_ticker = meta.get("ticker") or ticker or ""
+        raw_url = item.get("url", "")
+        # Normalise stale URLs: strip trailing /announcements and ensure uppercase ticker
+        if raw_url.endswith("/announcements"):
+            raw_url = raw_url[: -len("/announcements")]
+        canonical_url = (
+            raw_url
+            if raw_url
+            else f"https://www.asx.com.au/markets/company/{item_ticker}"
+        )
         announcements.append({
             "title": item.get("title", ""),
             "date": meta.get("document_date", ""),
             "released_at": item.get("timestamp", ""),
             "market_sensitive": meta.get("market_sensitive", False),
-            "url": item.get("url", ""),
+            "url": canonical_url,
             "pages": meta.get("number_of_pages"),
             "size": meta.get("size", ""),
         })
