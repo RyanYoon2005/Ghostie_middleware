@@ -41,6 +41,7 @@ def pytest_html_report_title(report):
 REQUIRED_ENDPOINTS = {
     # Middleware
     ("GET", "/api"),
+    ("GET", "/trending"),
     # Data Collection
     ("GET", "/health", "collection"),
     ("GET", "/", "collection"),

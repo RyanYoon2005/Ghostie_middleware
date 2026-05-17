@@ -362,6 +362,44 @@ class TestExternalCharlieRedditPosts:
 # See: "Internal Routes (Email z5479862@ad.unsw.edu.au to access)"
 
 
+# ── Trending endpoint ─────────────────────────────────────────────────────
+
+
+class TestTrending:
+    """Verify the trending endpoint returns correct structure."""
+
+    def test_trending_returns_expected_shape(self, client, middleware_url):
+        r = client.get(f"{middleware_url}/trending")
+        assert r.status_code == 200
+        body = r.json()
+        assert "trending" in body
+        assert "total_searches" in body
+        assert isinstance(body["trending"], list)
+        assert isinstance(body["total_searches"], int)
+        assert body["total_searches"] >= 0
+
+    def test_trending_limit_is_respected(self, client, middleware_url):
+        r = client.get(f"{middleware_url}/trending", params={"limit": 3})
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["trending"]) <= 3
+
+    def test_trending_entry_structure(self, client, middleware_url):
+        r = client.get(f"{middleware_url}/trending")
+        assert r.status_code == 200
+        for entry in r.json()["trending"]:
+            assert "business_key" in entry
+            assert "search_count" in entry
+            assert isinstance(entry["search_count"], int)
+            assert entry["search_count"] > 0
+
+    def test_trending_sorted_descending(self, client, middleware_url):
+        r = client.get(f"{middleware_url}/trending")
+        assert r.status_code == 200
+        counts = [e["search_count"] for e in r.json()["trending"]]
+        assert counts == sorted(counts, reverse=True)
+
+
 # ── Endpoint coverage gate ─────────────────────────────────────────────────
 
 

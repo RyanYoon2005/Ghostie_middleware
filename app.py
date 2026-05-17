@@ -203,6 +203,71 @@ def my_api():
     return {"message": "Hello from Ghostie Middleware!"}
 
 
+# ── Trending endpoint ──────────────────────────────────────────────────────
+
+
+@app.get("/trending")
+async def get_trending(limit: int = 10):
+    """Return the most searched businesses across all users (no auth required)."""
+    limit = max(1, min(limit, 20))
+
+    # Step 1: Scan all users and count how many times each business_key appears
+    # across every user's past list (duplicates count — repeat searches = more trending)
+    counter: dict[str, int] = {}
+    scan_kwargs: dict = {"ProjectionExpression": "past"}
+    while True:
+        response = _users.scan(**scan_kwargs)
+        for item in response.get("Items", []):
+            for key in item.get("past", []):
+                counter[key] = counter.get(key, 0) + 1
+        last_evaluated = response.get("LastEvaluatedKey")
+        if not last_evaluated:
+            break
+        scan_kwargs["ExclusiveStartKey"] = last_evaluated
+
+    if not counter:
+        return {"trending": [], "total_searches": 0}
+
+    # Step 2: Pick the top N business keys by total search count
+    top_keys = sorted(counter.items(), key=lambda x: x[1], reverse=True)[:limit]
+    top_key_set = {k for k, _ in top_keys}
+
+    # Step 3: Resolve business keys → human-readable info via data retrieval /companies
+    name_map: dict[str, dict] = {}
+    if DATA_RETRIEVAL_URL:
+        try:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                resp = await client.get(f"{DATA_RETRIEVAL_URL.rstrip('/')}/companies")
+                if resp.status_code == 200:
+                    for company in resp.json().get("companies", []):
+                        key = _compute_business_key(
+                            company["business_name"],
+                            company["location"],
+                            company["category"],
+                        )
+                        if key in top_key_set:
+                            name_map[key] = {
+                                "business_name": company["business_name"],
+                                "location": company["location"],
+                                "category": company["category"],
+                            }
+        except Exception:
+            pass  # Degrade gracefully — keys without names are still useful
+
+    # Step 4: Build response
+    trending = []
+    for key, count in top_keys:
+        entry: dict = {"business_key": key, "search_count": count}
+        if key in name_map:
+            entry.update(name_map[key])
+        trending.append(entry)
+
+    return {
+        "trending": trending,
+        "total_searches": sum(counter.values()),
+    }
+
+
 # ── Proxy helpers ──────────────────────────────────────────────────────────
 
 
