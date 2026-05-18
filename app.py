@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import json
 import os
 import time
 import uuid
@@ -594,6 +595,94 @@ async def _proxy(base_url: str, path: str, request: Request, user: dict) -> Resp
     )
 
 
+# ── Analyse endpoint (auto-collect + sentiment in one call) ───────────────
+
+
+@app.get("/analyse")
+async def analyse(
+    business_name: str,
+    location: str,
+    category: str,
+    user: Annotated[dict, Depends(get_current_user)],
+):
+    """
+    Full analysis pipeline for a business.
+
+    1. Calls the analytical model's /sentiment endpoint.
+    2. If no data exists yet (404-style response), automatically triggers
+       POST /collect on the data-collection service, then retries sentiment.
+    3. Records the business in the user's past list on success.
+    """
+    if not ANALYTICAL_MODEL_URL:
+        raise HTTPException(status_code=503, detail="Analytical model not configured")
+
+    user_headers = {
+        "X-User-Email": user["sub"],
+        "X-User-Username": user["username"],
+    }
+    params = {
+        "business_name": business_name,
+        "location": location,
+        "category": category,
+    }
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        sentiment_resp = await client.get(
+            f"{ANALYTICAL_MODEL_URL.rstrip('/')}/sentiment",
+            params=params,
+            headers=user_headers,
+        )
+
+    # If the analytical model has no data, collect it now then retry once
+    body = sentiment_resp.json() if sentiment_resp.content else {}
+    no_data = sentiment_resp.status_code in (404, 400) or (
+        sentiment_resp.status_code == 200
+        and "no collected data" in str(body).lower()
+    )
+
+    if no_data:
+        if not DATA_COLLECTION_URL:
+            raise HTTPException(status_code=503, detail="Data collection service not configured")
+
+        # Trigger collection (this takes ~10-20 s for a cold business)
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                collect_resp = await client.post(
+                    f"{DATA_COLLECTION_URL.rstrip('/')}/collect",
+                    json=params,
+                )
+            if collect_resp.status_code not in (200, 201):
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Data collection failed: {collect_resp.text[:200]}",
+                )
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=504,
+                detail="Data collection timed out — try again in a moment",
+            )
+
+        # Retry sentiment after collecting
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            sentiment_resp = await client.get(
+                f"{ANALYTICAL_MODEL_URL.rstrip('/')}/sentiment",
+                params=params,
+                headers=user_headers,
+            )
+
+    if sentiment_resp.status_code != 200:
+        raise HTTPException(
+            status_code=sentiment_resp.status_code,
+            detail=sentiment_resp.text[:300],
+        )
+
+    # Record in user's past list
+    business_key = _compute_business_key(business_name, location, category)
+    _record_past(user["sub"], business_key)
+
+    return sentiment_resp.json()
+
+
 # ── Authenticated proxy routes ─────────────────────────────────────────────
 
 
@@ -631,6 +720,38 @@ async def analytical_model_proxy(
     user: Annotated[dict, Depends(get_current_user)],
 ):
     response = await _proxy(ANALYTICAL_MODEL_URL, path, request, user)
+
+    # For sentiment: if no data exists yet, auto-collect then retry once.
+    # This handles new businesses transparently without any frontend changes.
+    if path.rstrip("/") == "sentiment" and DATA_COLLECTION_URL:
+        try:
+            body = json.loads(response.body)
+        except Exception:
+            body = {}
+
+        no_data = response.status_code in (404, 400) or (
+            response.status_code == 200
+            and (body.get("items_analysed", 1) == 0 or body.get("overall_score") is None)
+        )
+
+        if no_data:
+            params = dict(request.query_params)
+            biz = params.get("business_name", "")
+            loc = params.get("location", "")
+            cat = params.get("category", "")
+            if biz and loc and cat:
+                try:
+                    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                        collect_resp = await client.post(
+                            f"{DATA_COLLECTION_URL.rstrip('/')}/collect",
+                            json={"business_name": biz, "location": loc, "category": cat},
+                        )
+                    if collect_resp.status_code in (200, 201):
+                        # Brief pause to allow DynamoDB to propagate the write
+                        await asyncio.sleep(2)
+                        response = await _proxy(ANALYTICAL_MODEL_URL, path, request, user)
+                except Exception:
+                    pass  # Return original response if auto-collect fails
 
     # Funnel: record business in user's past list when sentiment is analysed
     if path.rstrip("/") == "sentiment" and response.status_code == 200:
